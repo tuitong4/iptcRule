@@ -374,13 +374,5 @@ class IPInterface(IPv4Address):
             raise ValueError(msg % details)
         return prefixlen
 
-
-
-if __name__ == "__main__":
-    ip = IPInterface("172.20.0.1/24")
-    ip2 = IPInterface("172.20.0.2/32")
-    print(ip.last_host_address)
-    print(ip.first_host_address)
-    print(ip.same_network_with(ip2))
-    print(ip.network_include_address(ip2))
-
+def ipaddress(address):
+    return IPInterface(address)
