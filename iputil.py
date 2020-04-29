@@ -19,35 +19,64 @@ def _count_righthand_zero_bits(number, bits):
     return min(bits, (~number & (number-1)).bit_length())
 
 
-class IPInterface():
+class IPv4Address():
 
     _max_prefixlen = 32
     _ALL_ONES = 2**32 - 1
-    def __init__(self, address):
-        addr, mask = self._split_addr_prefix(address)
-        self.ip = self._ip_int_from_string(addr)
-        self.netmask, self._prefixlen = self._make_netmask(mask)
+    _version = 4
 
+    def __init__(self, address):
+        if isinstance(address, int):
+            self._check_int_address(address)
+            self._ip = address
+            return
+
+        addr_str = str(address)    
+        if '/' in addr_str:
+            raise AddressValueError("Unexpected '/' in %r" % address)
+        self._ip = self._ip_int_from_string(addr_str)
 
     @property
     def compressed(self):
         return str(self)
 
+    def __int__(self):
+        return self._ip
+
     def __str__(self):
-        return str(self._string_from_ip_int(self.ip))
+        return str(self._string_from_ip_int(self._ip))
 
-    @property
-    def network_address(self):
-        return str(self.ip & int(self.netmask))
+    def __eq__(self, other):
+        try:
+            return (self._ip == other._ip
+                    and self._version == other._version)
+        except AttributeError:
+            return NotImplemented
 
-    @property
-    def broadcast_address(self):
-        i = 2**(self._max_prefixlen - self._prefixlen)
-        return self._string_from_ip_int(self.ip & self.netmask + i - 1)
+    def __lt__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        if self._version != other._version:
+            raise TypeError('%s and %s are not of the same version' % (
+                             self, other))
+        if self._ip != other._ip:
+            return self._ip < other._ip
+        return False
 
-    @property
-    def prefix_len(self):
-        return self._prefixlen
+    # Shorthand for Integer addition and subtraction. This is not
+    # meant to ever support addition/subtraction of addresses.
+    def __add__(self, other):
+        if not isinstance(other, int):
+            return NotImplemented
+        return self.__class__(int(self) + other)
+
+    def __sub__(self, other):
+        if not isinstance(other, int):
+            return NotImplemented
+        return self.__class__(int(self) - other)
+
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, str(self))
 
     @classmethod
     def _ip_int_from_string(cls, ip_str):
@@ -110,6 +139,86 @@ class IPInterface():
             The IP address as a string in dotted decimal notation.
         """
         return '.'.join(map(str, ip_int.to_bytes(4, 'big')))
+
+
+    @classmethod
+    def _check_int_address(cls, address):
+        if address < 0:
+            msg = "%d (< 0) is not permitted as an IPv4 address"
+            raise AddressValueError(msg % (address))
+        if address > cls._ALL_ONES:
+            msg = "%d (>= 2**%d) is not permitted as an IPv4 address"
+            raise AddressValueError(msg % (address, cls._max_prefixlen))
+
+class IPInterface(IPv4Address):
+
+    def __init__(self, address):
+        addr, mask = self._split_addr_prefix(address)
+        IPv4Address.__init__(self, addr)
+        self._netmask, self._prefixlen = self._make_netmask(mask)
+
+    @property
+    def network_address(self):
+        return IPv4Address(self._ip & self._netmask)
+
+    @property
+    def broadcast_address(self):
+        i = 2**(self._max_prefixlen - self._prefixlen)
+        return IPv4Address((self._ip & self._netmask) + i - 1)
+
+    @property
+    def prefix_len(self):
+        return self._prefixlen
+
+    @property
+    def ip(self):
+        return IPv4Address(self._ip)
+
+    @property
+    def with_prefixlen(self):
+        return '%s/%s' % (self._string_from_ip_int(self._ip),
+                          self._prefixlen)
+
+    @property
+    def netmask(self):
+        return IPv4Address(self._netmask)
+
+    @property
+    def with_netmask(self):
+        return '%s/%s' % (self._string_from_ip_int(self._ip),
+                          self._string_from_ip_int(self._netmask))
+    @property
+    def network_with_prefixlen(self):
+         return '%s/%s' % (self._string_from_ip_int(self._netmask),
+                          self._prefixlen)       
+    @property
+    def first_host_address(self):
+        return self.network_address + 1
+
+    @property
+    def last_host_address(self):
+        return self.broadcast_address - 1 
+
+    def same_network_with(self, other):
+        if isinstance(other, self.__class__):
+            network_address = other.network_address
+        elif isinstance(other, IPv4Address):
+            network_address = other._ip
+        else:    
+            return NotImplemented
+        if self._version != other._version:
+            raise TypeError('%s and %s are not of the same version' % (
+                             self, other))
+        return self.network_address == network_address
+
+    def network_include_address(self, other):
+        if not isinstance(other, (self.__class__, IPv4Address)):   
+            return NotImplemented
+        if self._version != other._version:
+            raise TypeError('%s and %s are not of the same version' % (
+                             self, other))
+
+        return self.network_address._ip <= other._ip and  other._ip <= self.broadcast_address._ip
 
     @classmethod
     def _split_addr_prefix(cls, address):
@@ -265,21 +374,13 @@ class IPInterface():
             raise ValueError(msg % details)
         return prefixlen
 
-    @classmethod
-    def _check_int_address(cls, address):
-        if address < 0:
-            msg = "%d (< 0) is not permitted as an IPv4 address"
-            raise AddressValueError(msg % (address))
-        if address > cls._ALL_ONES:
-            msg = "%d (>= 2**%d) is not permitted as an IPv4 address"
-            raise AddressValueError(msg % (address, cls._max_prefixlen))
 
 
 if __name__ == "__main__":
-    ip = IPInterface("172.20.0.1")
+    ip = IPInterface("172.20.0.1/24")
+    ip2 = IPInterface("172.20.0.2/32")
+    print(ip.last_host_address)
+    print(ip.first_host_address)
+    print(ip.same_network_with(ip2))
+    print(ip.network_include_address(ip2))
 
-    print(ip.prefix_len)
-    print(ip.compressed)
-    print(ip.netmask)
-    print(ip.network_address)
-    print(ip.broadcast_address)
