@@ -246,11 +246,6 @@ class IPInterface(IPv4Address):
     def _split_optional_netmask(cls, address):
         """Helper to split the netmask and raise AddressValueError if needed"""
         addr = str(address).split('/')
-        if len(addr) == 1:
-            # Set prefixlen = 32 if no mask found in address.
-            addr.append('32')
-            return addr
-
         if len(addr) > 2:
             raise AddressValueError("Only one '/' permitted in %r" % address)
         return addr
